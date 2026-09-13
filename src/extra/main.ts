@@ -206,6 +206,7 @@ import { CAMPAIGN_WALKTHROUGH, expandWalkthrough, type WalkCmd } from "./walkthr
 import type { ClipName } from "./coolmathBoard";
 import { looksLikeMobile, registerServiceWorker, TouchChrome } from "./touchPad";
 import { fitHowtoNav, fitOverlayCopy, howtoNavIds, howtoSlide, padStage } from "./howto";
+import { needsWebcamStart, shouldClearWebcamBgOnFailure } from "./webcamLive";
 
 type Screen =
   | "splash"
@@ -484,6 +485,7 @@ let finishKind: PlayCard = "classic";
 let finishTitle = "";
 let finishSubtitle = "";
 let webcamStream: MediaStream | null = null;
+let webcamPrompt: Promise<void> | null = null;
 let tabCastStream: MediaStream | null = null;
 let tabCastPrompt: Promise<void> | null = null;
 let atlasRects: AtlasRect[] | null = null;
@@ -1327,7 +1329,14 @@ function applyThemeMedia(): void {
       }
     } else {
       stopTabCast();
-      void startWebcam(cam);
+      if (needsWebcamStart(webcamStream, webcamPrompt)) void startWebcam(cam);
+      else if (webcamStream && cam && cam.srcObject !== webcamStream) {
+        cam.srcObject = webcamStream;
+        cam.hidden = false;
+        void cam.play().catch(() => undefined);
+      } else if (webcamStream && cam) {
+        void cam.play().catch(() => undefined);
+      }
     }
     lastTintKey = "";
     applyPlayTint();
@@ -1400,24 +1409,44 @@ async function startWebcam(cam: HTMLVideoElement | null): Promise<void> {
     void cam.play().catch(() => undefined);
     return;
   }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    if (!loadSettings().webcamBg) {
-      for (const track of stream.getTracks()) track.stop();
-      return;
+  if (webcamPrompt) {
+    await webcamPrompt;
+    if (webcamStream && cam.srcObject !== webcamStream) {
+      cam.srcObject = webcamStream;
+      cam.hidden = false;
+      void cam.play().catch(() => undefined);
+    } else if (webcamStream) {
+      void cam.play().catch(() => undefined);
     }
-    webcamStream = stream;
-    cam.srcObject = stream;
-    cam.hidden = false;
-    void cam.play().catch(() => undefined);
-  } catch {
-    const s = loadSettings();
-    s.webcamBg = false;
-    saveSettings(s);
-    cam.hidden = true;
-    markHudDirty();
-    paintHud();
+    return;
   }
+  webcamPrompt = (async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      if (!loadSettings().webcamBg) {
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
+      if (webcamStream) {
+        for (const track of webcamStream.getTracks()) track.stop();
+      }
+      webcamStream = stream;
+      cam.srcObject = stream;
+      cam.hidden = false;
+      void cam.play().catch(() => undefined);
+    } catch {
+      if (!shouldClearWebcamBgOnFailure(webcamStream)) return;
+      const s = loadSettings();
+      s.webcamBg = false;
+      saveSettings(s);
+      cam.hidden = true;
+      markHudDirty();
+      paintHud();
+    } finally {
+      webcamPrompt = null;
+    }
+  })();
+  await webcamPrompt;
 }
 
 async function startTabCast(cam: HTMLVideoElement | null): Promise<void> {
@@ -4248,7 +4277,6 @@ function handleHudAction(act: string): void {
     applyLooks();
     showGameSky(true);
     lastTintKey = "";
-    applyThemeMedia();
     markHudDirty();
     paintHud();
   } else if (act === "toggle-tab-cast") {
@@ -4262,7 +4290,6 @@ function handleHudAction(act: string): void {
     applyLooks();
     showGameSky(true);
     lastTintKey = "";
-    applyThemeMedia();
     markHudDirty();
     paintHud();
   } else if (act === "toggle-fullscreen") {
