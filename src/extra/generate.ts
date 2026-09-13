@@ -566,19 +566,38 @@ export function flipLevel(def: LevelDef, fx: boolean, fy: boolean): LevelDef {
   };
 }
 
-export function remixCampaign(seed: string, band: "mid" | "late" | "end", difficulty: Difficulty): Puzzle {
+/** Max unique flipped layouts in a donor band (donors × 4 flips). */
+export function bandFlipCeiling(band: "mid" | "late" | "end"): number {
+  const [lo, hi] = DONOR[band];
+  return (hi - lo + 1) * 4;
+}
+
+/**
+ * Campaign donor flip + pack only — no BFS. Same layouts as remixCampaign;
+ * used by gauntlet runs that discard solution metadata.
+ */
+export function remixCampaignLayout(seed: string, band: "mid" | "late" | "end", difficulty: Difficulty): Puzzle {
   const [lo, hi] = DONOR[band];
   const rng = mulberry32(hashSeed(`remix:${seed}:${band}`));
   const src = LEVELS[lo + Math.floor(rng() * (hi - lo + 1))] ?? LEVELS[29]!;
   const def = flipLevel(src, rng() < 0.5, rng() < 0.5);
   const packed = packDef(def.tiles, def.spawn, seed, def.switches, def.splits);
-  const solved = solveLevel(packed, 220_000);
   return {
     def: packed,
     seed,
     difficulty,
+    solutionLen: 80,
+    usedObstacles: countObstacles(packed.tiles),
+  };
+}
+
+export function remixCampaign(seed: string, band: "mid" | "late" | "end", difficulty: Difficulty): Puzzle {
+  const base = remixCampaignLayout(seed, band, difficulty);
+  const solved = solveLevel(base.def, 220_000);
+  return {
+    ...base,
     solutionLen: solved.ok ? solved.cmds.length : 80,
-    usedObstacles: solved.ok ? usedObstacleCount(packed, solved.cmds) : countObstacles(packed.tiles),
+    usedObstacles: solved.ok ? usedObstacleCount(base.def, solved.cmds) : countObstacles(base.def.tiles),
     solution: solved.ok ? solved.cmds.slice() : undefined,
   };
 }
@@ -1872,73 +1891,24 @@ export function generateAttract(seed: string): Puzzle {
 }
 
 /**
- * Gauntlet / seeded run: archetype variety only when GAUNTLET_QUALITY or scaled thinking is met.
- * All difficulties prefer insight/planning; obvious island chains never clear the floor.
+ * Gauntlet / seeded endless: layout-only campaign remix (flip + pack, no BFS).
+ * Play paths only keep `def`; solving every floor on the UI thread freezes N=33.
+ * Quality / thinking gates stay on single-puzzle builders — not all 33 without async.
  */
 export function generateRun(seed: string, difficulty: Difficulty, count: number): Puzzle[] {
   const n = Math.max(1, Math.min(33, count));
-  const q = GAUNTLET_QUALITY[difficulty];
   const band = gauntletRemixBand(difficulty);
-  const novelty = THINKING[difficulty].minNovelty;
+  const ceiling = bandFlipCeiling(band);
   const used = new Set<string>();
   return Array.from({ length: n }, (_, i) => {
     const floorSeed = `${seed}#${i}`;
-    const primary = runArchetypeForSeed(seed, i);
-    const roster = [primary, ...GAUNTLET_ARCHETYPES.filter((a) => a !== primary)];
-    let picked: Puzzle | null = null;
-    for (let ai = 0; ai < Math.min(5, roster.length) && !picked; ai++) {
-      const arch = roster[ai]!;
-      const attempts = ai === 0 ? Math.min(8, Math.max(q.attempts, 6)) : 3;
-      const cand = tryArchetypePuzzle(`${floorSeed}:${arch}`, arch, difficulty, q, attempts, {
-        strictQuality: true,
-        minNovelty: novelty,
-        thinkingDifficulty: difficulty,
-      });
-      if (!cand) continue;
-      const key = cand.def.tiles.join("");
-      if (used.has(key)) continue;
-      if (!meetsThinkingDesign(cand.def, difficulty) && !meetsGauntletThinking(cand, q, difficulty, novelty)) continue;
-      picked = { ...cand, difficulty };
+    let p = remixCampaignLayout(floorSeed, band, difficulty);
+    // Retry uniqueness only while the donor×flip space can still grow.
+    for (let guard = 1; used.has(p.def.tiles.join("")) && guard < 10 && used.size < ceiling; guard++) {
+      p = remixCampaignLayout(`${floorSeed}:${guard}`, band, difficulty);
     }
-    if (!picked) {
-      picked = remixCampaignSearch(
-        floorSeed,
-        band,
-        difficulty,
-        (p) => meetsGauntletThinking(p, q, difficulty, novelty),
-        used,
-      );
-      if (picked) picked = { ...picked, difficulty };
-    }
-    if (!picked) {
-      const built = generateQualityPuzzle(`${floorSeed}:gq`, q, difficulty);
-      if (!used.has(built.def.tiles.join("")) && meetsGauntletThinking(built, q, difficulty, Math.min(novelty, 2))) {
-        picked = { ...built, difficulty };
-      }
-    }
-    if (!picked) {
-      picked = remixCampaignSearch(
-        floorSeed,
-        band,
-        difficulty,
-        (p) => meetsGauntletFloor(p, q, difficulty) || meetsThinking(p, assessPuzzle(p.def, HARD_BFS), difficulty),
-        used,
-      );
-      if (picked) picked = { ...picked, difficulty };
-    }
-    if (!picked) {
-      for (let guard = 0; guard < 6; guard++) {
-        const p = remixCampaign(`${floorSeed}:z${guard}`, band, difficulty);
-        const key = p.def.tiles.join("");
-        if (used.has(key)) continue;
-        if (isObviousIslandChain(p.def)) continue;
-        picked = p;
-        break;
-      }
-      picked = picked ?? remixCampaign(floorSeed, band, difficulty);
-    }
-    used.add(picked.def.tiles.join(""));
-    return { ...picked, difficulty };
+    used.add(p.def.tiles.join(""));
+    return { ...p, difficulty };
   });
 }
 

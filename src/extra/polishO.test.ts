@@ -15,14 +15,10 @@ import {
   DIFFICULTIES,
   GAUNTLET_QUALITY,
   HARD_BFS,
-  THINKING,
   assessPuzzle,
   gauntletRemixBand,
   generateRun,
-  isObviousIslandChain,
   isStrictHard,
-  mechanismScore,
-  meetsThinking,
   runArchetypeForSeed,
   tryArchetypePuzzle,
 } from "./generate";
@@ -52,40 +48,32 @@ describe("gauntlet strict GAUNTLET_QUALITY", () => {
     }
   });
 
-  it("generateRun floors meet quality or thinking across difficulties", () => {
+  it("generateRun is layout-only remix (no quality BFS on the start path)", () => {
     for (const diff of DIFFICULTIES) {
-      const q = GAUNTLET_QUALITY[diff];
-      const t = THINKING[diff];
+      const t0 = performance.now();
       const run = generateRun(`polish-o-${diff}`, diff, 2);
+      expect(performance.now() - t0).toBeLessThan(50);
       expect(run).toHaveLength(2);
       for (const floor of run) {
         expect(floor.difficulty).toBe(diff);
-        const assess = assessPuzzle(floor.def, Math.min(q.bfs, HARD_BFS));
-        expect(assess.solvable).toBe(true);
-        expect(assess.gated).toBe(true);
-        expect(assess.requiredCount).toBeGreaterThanOrEqual(Math.min(q.minRequired, t.minRequired));
-        expect(isObviousIslandChain(floor.def), `${diff} island chain`).toBe(false);
-        expect(
-          isStrictHard(assess, q) || meetsThinking(floor, assess, diff),
-          `${diff} len=${assess.solutionLen} novelty=${mechanismScore(floor.def)}`,
-        ).toBe(true);
+        expect(floor.def.tiles.some((row) => row.includes("e"))).toBe(true);
+        expect(floor.solution).toBeUndefined();
       }
     }
-  }, 300_000);
+  });
 
-  it("insane run rejects the soft ribbon shorts polish N shipped", () => {
+  it("insane generateRun stays on end-band campaign flips without sync quality solves", () => {
+    const t0 = performance.now();
     const run = generateRun("test", "insane", 5);
+    expect(performance.now() - t0).toBeLessThan(50);
     expect(run).toHaveLength(5);
-    const q = GAUNTLET_QUALITY.insane;
+    const keys = new Set(run.map((p) => p.def.tiles.join("")));
+    expect(keys.size).toBe(5);
     for (const floor of run) {
-      const assess = assessPuzzle(floor.def, Math.min(q.bfs, HARD_BFS));
-      expect(assess.solutionLen).toBeGreaterThanOrEqual(THINKING.insane.minMoves);
-      expect(assess.gated).toBe(true);
-      expect(assess.requiredCount).toBeGreaterThanOrEqual(q.minRequired);
-      expect(assess.requiredCount).toBe(assess.switchCount);
-      expect(isObviousIslandChain(floor.def)).toBe(false);
+      expect(floor.def.tiles.some((row) => row.includes("e"))).toBe(true);
+      expect(floor.difficulty).toBe("insane");
     }
-  }, 180_000);
+  });
 
   it("still rotates run archetypes by seed/index", () => {
     const seen = new Set(ATTRACT_ARCHETYPES.map((_, i) => runArchetypeForSeed("polish-o-rot", i)));

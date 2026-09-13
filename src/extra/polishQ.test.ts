@@ -86,43 +86,30 @@ describe("attract thinking showcase", () => {
 });
 
 describe("gauntlet thinking at all difficulties", () => {
-  it("floors prefer planning signals over move-padded island chains", () => {
+  it("generateRun stays layout-only and exit-bearing across difficulties", () => {
     for (const diff of DIFFICULTIES) {
-      const q = GAUNTLET_QUALITY[diff];
-      const t = THINKING[diff];
+      const t0 = performance.now();
       const run = generateRun(`think-${diff}`, diff, 3);
+      expect(performance.now() - t0).toBeLessThan(50);
       expect(run).toHaveLength(3);
-      const fingerprints = new Set<string>();
       for (const floor of run) {
-        const assess = assessPuzzle(floor.def, Math.min(q.bfs, HARD_BFS));
-        expect(assess.solvable, floor.seed).toBe(true);
-        expect(assess.gated, floor.seed).toBe(true);
-        expect(isObviousIslandChain(floor.def), floor.seed).toBe(false);
-        expect(
-          isStrictHard(assess, q) || meetsThinking(floor, assess, diff),
-          `${floor.seed} len=${assess.solutionLen} nov=${mechanismScore(floor.def)}`,
-        ).toBe(true);
-        expect(mechanismScore(floor.def), floor.seed).toBeGreaterThanOrEqual(Math.min(2, t.minNovelty));
-        const modes = [...new Set((floor.def.switches ?? []).flatMap((s) => s.bridges.map((b) => b.mode)))]
-          .sort()
-          .join(",");
-        fingerprints.add(`${(floor.def.splits ?? []).length}:${modes}:${mechanismScore(floor.def)}`);
+        expect(floor.def.tiles.some((row) => row.includes("e")), floor.seed).toBe(true);
+        expect(floor.solution, floor.seed).toBeUndefined();
       }
-      expect(fingerprints.size, diff).toBeGreaterThanOrEqual(1);
     }
-  }, 420_000);
+  });
 
-  it("easy still fair but idea-based; insane stays deep", () => {
+  it("easy and insane runs share the same cheap remix path", () => {
     const easy = generateRun("fair-easy", "easy", 2);
     for (const floor of easy) {
-      const assess = assessPuzzle(floor.def, HARD_BFS);
-      expect(assess.solutionLen).toBeGreaterThanOrEqual(THINKING.easy.minMoves);
-      expect(meetsThinkingDesign(floor.def, "easy") || mechanismScore(floor.def) >= 2).toBe(true);
+      expect(floor.def.tiles.some((row) => row.includes("e"))).toBe(true);
+      expect(floor.difficulty).toBe("easy");
     }
     const insane = generateRun("deep-insane", "insane", 2);
     for (const floor of insane) {
-      expect(mechanismScore(floor.def)).toBeGreaterThanOrEqual(THINKING.insane.minNovelty);
-      expect(isObviousIslandChain(floor.def)).toBe(false);
+      expect(floor.def.tiles.some((row) => row.includes("e"))).toBe(true);
+      expect(floor.difficulty).toBe("insane");
+      expect(floor.solution).toBeUndefined();
     }
-  }, 240_000);
+  });
 });

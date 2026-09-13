@@ -264,12 +264,12 @@ describe("daily hardness", () => {
 });
 
 describe("gauntlet hardness bands", () => {
-  it("easy floors stay solvable with exits", () => {
+  it("easy floors stay exit-bearing after layout remix", () => {
     const run = generateRun("20260909", "easy", 2);
     expect(run).toHaveLength(2);
     for (const floor of run) {
       expect(floor.def.tiles.some((row) => row.includes("e")), floor.seed).toBe(true);
-      expect(floor.solutionLen, floor.seed).toBeGreaterThanOrEqual(5);
+      expect(floor.solution, floor.seed).toBeUndefined();
     }
   });
 
@@ -280,5 +280,11 @@ describe("gauntlet hardness bands", () => {
       Array.from({ length: 16 }, (_, i) => runArchetypeForSeed("77", i)),
     );
     expect(arches.size).toBeGreaterThan(1);
+  });
+
+  it("remixCampaign still solves for callers that need metadata", () => {
+    const p = remixCampaign("unit-end-meta", "end", "insane");
+    expect(p.solution?.length ?? 0).toBeGreaterThan(0);
+    expect(p.solutionLen).toBeGreaterThan(0);
   });
 });

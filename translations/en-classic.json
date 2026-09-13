@@ -106,6 +106,7 @@
   "gauntlet.title": "Gauntlet",
   "gauntlet.seed": "Seed",
   "gauntlet.play": "Play Gauntlet",
+  "gauntlet.generating": "Building gauntlet…",
   "gauntlet.five": "Five stages. Same seed, same gauntlet.",
   "diff.easy": "Easy",
   "diff.medium": "Medium",

@@ -5026,23 +5026,40 @@ function playDaily(): void {
   });
 }
 
+/** Yield one paint so `#hud-busy` can show before sync generateRun. */
+function withGenerateBusy(label: string, work: () => void): void {
+  setTemplateBusy(true, 0, label);
+  const run = (): void => {
+    try {
+      setTemplateBusy(true, 0.55, label);
+      work();
+    } finally {
+      setTemplateBusy(false, 1);
+    }
+  };
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
+  else run();
+}
+
 function playSeededRun(seed: string): void {
   const clean = seed.trim() || freshSeed();
   puzzleSeed = clean;
   if (seededEndless) {
-    const run = generateRun(clean, "insane", 33);
-    startCustom(
-      run.map((p) => p.def),
-      "puzzles-seeded",
-      {
-        card: "seeded",
-        title: t("play.seeded"),
-        subtitle: clean,
-        seed: clean,
-        entry: "puzzle",
-        diff: "insane",
-      },
-    );
+    withGenerateBusy(t("gauntlet.generating"), () => {
+      const run = generateRun(clean, "insane", 33);
+      startCustom(
+        run.map((p) => p.def),
+        "puzzles-seeded",
+        {
+          card: "seeded",
+          title: t("play.seeded"),
+          subtitle: clean,
+          seed: clean,
+          entry: "puzzle",
+          diff: "insane",
+        },
+      );
+    });
     return;
   }
   const p = generateSeeded(clean);
@@ -5059,19 +5076,21 @@ function playGauntlet(seed: string, diff: Difficulty, count: GauntletCount = gau
   const clean = seed.trim() || freshSeed();
   gauntletSeed = clean;
   gauntletCount = count;
-  const run = generateRun(clean, diff, count);
-  startCustom(
-    run.map((p) => p.def),
-    "puzzles-gauntlet",
-    {
-      card: "gauntlet",
-      title: t("play.gauntlet", { diff: t("diff." + diff) }),
-      subtitle: clean,
-      seed: clean,
-      entry: "puzzle",
-      diff,
-    },
-  );
+  withGenerateBusy(t("gauntlet.generating"), () => {
+    const run = generateRun(clean, diff, count);
+    startCustom(
+      run.map((p) => p.def),
+      "puzzles-gauntlet",
+      {
+        card: "gauntlet",
+        title: t("play.gauntlet", { diff: t("diff." + diff) }),
+        subtitle: clean,
+        seed: clean,
+        entry: "puzzle",
+        diff,
+      },
+    );
+  });
 }
 
 function playSavedStage(row: { name: string; author: string; def: LevelDef }, returnTo: Screen): void {

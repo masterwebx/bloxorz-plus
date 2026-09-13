@@ -88,46 +88,27 @@ describe("insane attract novelty", () => {
 });
 
 describe("insane gauntlet novelty", () => {
-  it("floors meet thinking/quality gates and mechanism novelty across seeds", () => {
-    const q = GAUNTLET_QUALITY.insane;
+  it("generateRun floors stay unique under the end-band flip ceiling", () => {
     for (const seed of ["test", "gauntlet", "20260911"]) {
       const run = generateRun(seed, "insane", 5);
       expect(run).toHaveLength(5);
-      const keys = new Set<string>();
-      let thinkingOrRemix = 0;
-      for (const floor of run) {
-        const assess = assessPuzzle(floor.def, Math.min(q.bfs, HARD_BFS));
-        expect(assess.solutionLen, floor.seed).toBeGreaterThanOrEqual(INSANE_THINKING.minMoves);
-        expect(assess.gated, floor.seed).toBe(true);
-        expect(assess.requiredCount, floor.seed).toBeGreaterThanOrEqual(q.minRequired);
-        expect(assess.requiredCount, floor.seed).toBe(assess.switchCount);
-        expect(isStrictHard(assess, q) || meetsInsaneThinking(floor, assess), floor.seed).toBe(true);
-        expect(meetsInsaneDesign(floor.def), floor.seed).toBe(true);
-        const novel =
-          sharedBridgeCount(floor.def) >= 1 ||
-          hasStartingOnBridges(floor.def) ||
-          hasOffOrToggle(floor.def) ||
-          (floor.def.splits ?? []).length > 0;
-        expect(novel, floor.seed).toBe(true);
-        keys.add(floor.def.tiles.join(""));
-        if (meetsInsaneThinking(floor, assess)) thinkingOrRemix++;
-      }
+      const keys = new Set(run.map((p) => p.def.tiles.join("")));
       expect(keys.size, seed).toBe(5);
-      expect(thinkingOrRemix, seed).toBeGreaterThan(0);
+      for (const floor of run) {
+        expect(floor.def.tiles.some((row) => row.includes("e")), floor.seed).toBe(true);
+        expect(floor.solution, floor.seed).toBeUndefined();
+      }
     }
-  }, 360_000);
+  });
 
-  it("prefers enriched generative floors over only flipped level-28/29 pairs", () => {
-    const run = generateRun("variety-probe", "insane", 8);
-    const fingerprints = new Set(
-      run.map((p) => {
-        const modes = [...new Set((p.def.switches ?? []).flatMap((s) => s.bridges.map((b) => b.mode)))]
-          .sort()
-          .join(",");
-        return `${(p.def.splits ?? []).length}:${modes}:${mechanismScore(p.def)}`;
-      }),
-    );
-    // At least two distinct mechanism fingerprints across 8 floors.
-    expect(fingerprints.size).toBeGreaterThanOrEqual(2);
-  }, 300_000);
+  it("33-stage insane run finishes fast even past the 20-layout ceiling", () => {
+    const t0 = performance.now();
+    const run = generateRun("variety-probe", "insane", 33);
+    expect(performance.now() - t0).toBeLessThan(100);
+    expect(run).toHaveLength(33);
+    const keys = new Set(run.map((p) => p.def.tiles.join("")));
+    // End band = 5 donors × 4 flips = 20 unique max; duplicates allowed after saturation.
+    expect(keys.size).toBeLessThanOrEqual(20);
+    expect(keys.size).toBeGreaterThanOrEqual(10);
+  });
 });

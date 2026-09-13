@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LEVELS, Stage } from "./engine";
 import {
+  bandFlipCeiling,
   dailySeed,
   difficultyHint,
   filledCellCount,
@@ -10,6 +11,8 @@ import {
   hashSeed,
   pruneOptionalSwitches,
   pruneUnusedSwitches,
+  remixCampaign,
+  remixCampaignLayout,
   usedObstacleKeys,
 } from "./generate";
 import { applyCmd, playScript, solveLevel } from "./solve";
@@ -148,7 +151,40 @@ describe("seeded generator", () => {
 
   it("allows gauntlet lengths up to 33", () => {
     expect(generateRun("long", "easy", 33)).toHaveLength(33);
-  }, 60_000);
+  });
+
+  it("builds a 33-stage run quickly without BFS metadata work", () => {
+    const t0 = performance.now();
+    const easy = generateRun("freeze-budget-easy", "easy", 33);
+    const hard = generateRun("freeze-budget-hard", "hard", 33);
+    const insane = generateRun("freeze-budget-insane", "insane", 33);
+    const ms = performance.now() - t0;
+    expect(easy).toHaveLength(33);
+    expect(hard).toHaveLength(33);
+    expect(insane).toHaveLength(33);
+    for (const floor of [...easy, ...hard, ...insane]) {
+      expect(floor.def.tiles.some((row) => row.includes("e"))).toBe(true);
+    }
+    // Layout-only remix: three full 33-packs should stay well under a UI-frame budget.
+    expect(ms).toBeLessThan(250);
+  });
+
+  it("keeps generateRun layouts deterministic for a seed", () => {
+    const a = generateRun("det-run", "insane", 8);
+    const b = generateRun("det-run", "insane", 8);
+    expect(a.map((p) => p.def.tiles.join(""))).toEqual(b.map((p) => p.def.tiles.join("")));
+  });
+
+  it("layout remix matches full remix tiles and skips the solution tape", () => {
+    expect(bandFlipCeiling("end")).toBe(20);
+    expect(bandFlipCeiling("mid")).toBe(32);
+    const layout = remixCampaignLayout("same-flip", "end", "hard");
+    const full = remixCampaign("same-flip", "end", "hard");
+    expect(layout.def.tiles).toEqual(full.def.tiles);
+    expect(layout.def.spawn).toEqual(full.def.spawn);
+    expect(layout.solution).toBeUndefined();
+    expect(full.solution?.length ?? 0).toBeGreaterThan(0);
+  });
 
   it("fills most of the 15×10 board and leaves unused walls empty", () => {
     const p = generateFullBoard("fill-check");
