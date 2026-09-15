@@ -230,11 +230,11 @@ export class TouchChrome {
         el.classList.add("is-down");
         this.handlers.down(code);
       });
+      // Release only on up/cancel/lost capture — pointerleave can fire mid-tap on
+      // some mobile browsers (buttons===0) and cleared keys before Coolmath's tick.
       el.addEventListener("pointerup", (ev) => this.release(ev.pointerId));
       el.addEventListener("pointercancel", (ev) => this.release(ev.pointerId));
-      el.addEventListener("pointerleave", (ev) => {
-        if (ev.buttons === 0) this.release(ev.pointerId);
-      });
+      el.addEventListener("lostpointercapture", (ev) => this.release(ev.pointerId));
     });
   }
 

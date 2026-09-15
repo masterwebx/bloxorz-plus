@@ -205,6 +205,13 @@ import {
 import { CAMPAIGN_WALKTHROUGH, expandWalkthrough, type WalkCmd } from "./walkthrough";
 import type { ClipName } from "./coolmathBoard";
 import { looksLikeMobile, registerServiceWorker, TouchChrome } from "./touchPad";
+import {
+  beginTouchPlayLatch,
+  releaseTouchPlayLatch,
+  tickTouchPlayLatch,
+  type TouchPlayLatch,
+} from "./touchPlayLatch";
+import { classicContinueLevel, classicSaveLevel } from "./classicProgress";
 import { fitHowtoNav, fitOverlayCopy, howtoNavIds, howtoSlide, padStage } from "./howto";
 import { needsWebcamStart, shouldClearWebcamBgOnFailure } from "./webcamLive";
 
@@ -549,6 +556,8 @@ let prevInstrSwap = false;
 let playHelpDismissedKey = "";
 let uiBusy = false;
 let touchChrome: TouchChrome | null = null;
+/** Coolmath arrow latch so short touch taps still fire one roll. */
+let touchPlayLatch: TouchPlayLatch | null = null;
 let localSaveWrapped = false;
 /** Native color picker open — skip HUD rebuilds that dismiss it. */
 let tintPicking = false;
@@ -623,7 +632,7 @@ function setName(name: string): void {
 function savedLevel(): number {
   try {
     const n = Number(window.localStorage.getItem("level"));
-    return Number.isFinite(n) && n > 0 ? n : 0;
+    return classicContinueLevel(n);
   } catch {
     return 0;
   }
@@ -2833,7 +2842,10 @@ function wrapLocalSave(): void {
   const orig = st.localSave.save.bind(st.localSave);
   localSaveWrapped = true;
   st.localSave.save = (num: number) => {
-    if (playSession?.classicRun && playSession.kind === "campaign" && !playSession.defs.length) orig(num);
+    if (playSession?.classicRun && playSession.kind === "campaign" && !playSession.defs.length) {
+      // Coolmath saves levelNumber++ after a win; beating 33 writes 34 — reset Continue to 01.
+      orig(classicSaveLevel(num));
+    }
   };
 }
 
@@ -2911,6 +2923,7 @@ function handlePauseNav(ev: "up" | "down" | "left" | "right" | "confirm" | "back
 }
 
 function releaseSteerKeys(): void {
+  clearTouchPlayLatch(false);
   const stage = window.stage;
   for (const code of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"]) {
     stage?.triggerKeyUp?.({ code });
@@ -5444,6 +5457,7 @@ function leavePlayTo(view: Screen): void {
     notePlayMs(Date.now() - playClock);
     playClock = 0;
   }
+  clearTouchPlayLatch(false);
   window.stage?.bloxWorld?.destroy?.();
   const flags = window as unknown as { setStageLoaded?: (n: number) => void; setSplit?: (n: number) => void };
   flags.setStageLoaded?.(0);
@@ -6078,11 +6092,19 @@ function releaseHudInputFocus(): void {
   if (document.activeElement === el) el.blur();
 }
 
+function clearTouchPlayLatch(release = true): void {
+  if (release && touchPlayLatch) {
+    window.stage?.triggerKeyUp?.({ code: touchPlayLatch.code });
+  }
+  touchPlayLatch = null;
+}
+
 function handleTouchPadDown(code: string): void {
   if (extraView === "creator-edit" && (code === "Space" || code === "Enter")) {
     creatorPaintKeyHeld = true;
   }
   if (currentLabel() === "instructions") {
+    clearTouchPlayLatch();
     if (code === "ArrowRight" || code === "ArrowDown") advanceInstructions(1);
     else if (code === "ArrowLeft" || code === "ArrowUp") advanceInstructions(-1);
     else if (code === "Space") advanceInstructions(1);
@@ -6090,6 +6112,7 @@ function handleTouchPadDown(code: string): void {
   }
   if (inStagePlay()) {
     if (isPauseMenuOpen()) {
+      clearTouchPlayLatch();
       if (code === "ArrowUp" || code === "ArrowLeft") handlePauseNav("up");
       else if (code === "ArrowDown" || code === "ArrowRight") handlePauseNav("down");
       else if (code === "Space") handlePauseNav("confirm");
@@ -6097,11 +6120,15 @@ function handleTouchPadDown(code: string): void {
     }
       const cmd = KEY_CMD[code];
       if (cmd) {
+        // New press replaces any prior latched tap.
+        clearTouchPlayLatch();
         noteKeyboardPlay();
         window.stage?.triggerKeyDown?.({ code });
+        touchPlayLatch = beginTouchPlayLatch(code);
       }
     return;
   }
+  clearTouchPlayLatch();
   if (code === "ArrowUp") handleMenuNav("up");
   else if (code === "ArrowDown") handleMenuNav("down");
   else if (code === "ArrowLeft") handleMenuNav("left");
@@ -6128,7 +6155,14 @@ function handleTouchPadUp(code: string): void {
     creatorPaintKeyHeld = false;
     endCreatorPaintStroke();
   }
-  if (inStagePlay()) window.stage?.triggerKeyUp?.({ code });
+  if (!inStagePlay()) {
+    clearTouchPlayLatch(false);
+    return;
+  }
+  const idle = !playBlocks().length || blocksIdle();
+  const result = releaseTouchPlayLatch(touchPlayLatch, code, idle);
+  touchPlayLatch = result.latch;
+  if (result.releaseNow) window.stage?.triggerKeyUp?.({ code });
 }
 
 function handleTouchPadRotate(): void {
@@ -6862,6 +6896,12 @@ function syncOverlay(): void {
       const idle = !playBlocks().length || blocksIdle();
       if (!autoSolve && blocksWereIdle && !idle) rumble(90, 0.42, 0.62);
       blocksWereIdle = idle;
+      // Touch tap latch: keep Coolmath arrow held until the roll starts, then release.
+      if (touchPlayLatch) {
+        const tick = tickTouchPlayLatch(touchPlayLatch, idle);
+        touchPlayLatch = tick.latch;
+        if (tick.releaseCode) window.stage?.triggerKeyUp?.({ code: tick.releaseCode });
+      }
       if (cachedDev) {
         if (!hud?.root.visible) {
           hud?.setVisible(true);
