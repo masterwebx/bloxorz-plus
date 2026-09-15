@@ -6897,10 +6897,12 @@ function syncOverlay(): void {
       if (!autoSolve && blocksWereIdle && !idle) rumble(90, 0.42, 0.62);
       blocksWereIdle = idle;
       // Touch tap latch: keep Coolmath arrow held until the roll starts, then release.
+      // Re-assert while armed so pollGamepad / stray keyups cannot clear a pending tap.
       if (touchPlayLatch) {
         const tick = tickTouchPlayLatch(touchPlayLatch, idle);
         touchPlayLatch = tick.latch;
         if (tick.releaseCode) window.stage?.triggerKeyUp?.({ code: tick.releaseCode });
+        else if (tick.reassertCode) window.stage?.triggerKeyDown?.({ code: tick.reassertCode });
       }
       if (cachedDev) {
         if (!hud?.root.visible) {

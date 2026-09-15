@@ -230,11 +230,16 @@ export class TouchChrome {
         el.classList.add("is-down");
         this.handlers.down(code);
       });
-      // Release only on up/cancel/lost capture — pointerleave can fire mid-tap on
-      // some mobile browsers (buttons===0) and cleared keys before Coolmath's tick.
+      // pointerleave (buttons===0) is a safety net when capture/up is flaky on
+      // mobile — without it, fingerDown can stick and hold-repeat forever (lag).
+      // Coolmath key release is deferred by touchPlayLatch for still-armed taps,
+      // so leave no longer kills short taps the way pre-latch code did.
       el.addEventListener("pointerup", (ev) => this.release(ev.pointerId));
       el.addEventListener("pointercancel", (ev) => this.release(ev.pointerId));
       el.addEventListener("lostpointercapture", (ev) => this.release(ev.pointerId));
+      el.addEventListener("pointerleave", (ev) => {
+        if (ev.buttons === 0) this.release(ev.pointerId);
+      });
     });
   }
 
